@@ -12,7 +12,3 @@ subprocess.run(
         "temp_files",
     ]
 )
-libreoffice-core
-fonts-nanum
-libgl1-mesa-glx
-poppler-utils
