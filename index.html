@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>PPT to PNG 변환기</title>
+</head>
+<body>
+    <h2>파워포인트(PPTX)를 PNG 이미지로 변환</h2>
+    <input type="file" id="pptFile" accept=".pptx">
+    <button onclick="uploadPPT()">변환하기</button>
+
+    <script>
+        async function uploadPPT() {
+            const fileInput = document.getElementById('pptFile');
+            if (fileInput.files.length === 0) {
+                alert("파일을 선택해주세요!");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            alert("변환 중입니다. 잠시만 기다려주세요!");
+
+            const response = await fetch("http://127.0.0.1:8000/convert-ppt-to-png/", {
+                method: "POST",
+                body: formData
+            });
+
+            if (response.ok) {
+                // 변환된 이미지 파일을 다운로드 링크로 연결
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "slide_1.png";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            } else {
+                alert("변환에 실패했습니다.");
+            }
+        }
+    </script>
+</body>
+</html>
