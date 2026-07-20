@@ -1,1 +1,4 @@
 libreoffice
+libreoffice-core
+fonts-nanum
+libgl1-mesa-glx
