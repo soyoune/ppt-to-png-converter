@@ -53,7 +53,7 @@ if uploaded_file is not None:
           )
 
         # 5. pdf2image를 사용해 PDF -> PNG 이미지로 변환
-        images = convert_from_path(target_pdf_path)
+        images = convert_from_path(target_pdf_path, dpi=300)
 
         st.success(f"총 {len(images)}개의 슬라이드가 변환되었습니다!")
 
