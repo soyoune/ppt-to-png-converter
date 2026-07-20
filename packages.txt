@@ -1,14 +1,4 @@
-import subprocess
-
-# 'libreoffice' 대신 'soffice' 사용
-subprocess.run(
-    [
-        "soffice",
-        "--headless",
-        "--convert-to",
-        "pdf",
-        input_path,
-        "--outdir",
-        "temp_files",
-    ]
-)
+libreoffice
+libreoffice-core
+poppler-utils
+fonts-nanum
