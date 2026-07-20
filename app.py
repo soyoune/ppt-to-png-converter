@@ -52,31 +52,34 @@ if uploaded_file is not None:
               f"변환된 PDF 파일을 찾을 수 없습니다: {generated_pdf_path}"
           )
 
-        # 5. pdf2image를 사용해 PDF -> PNG 이미지로 변환
-        images = convert_from_path(target_pdf_path, dpi=300)
+       # 5. pdf2image를 사용할 때 미리보기용과 고화질 원본을 구분
+        # - 미리보기용: 낮은 DPI (빠른 로딩)
+        # - 고화질 원본: 300 DPI (인쇄용 고해상도)
+        preview_images = convert_from_path(target_pdf_path, dpi=100)
+        high_res_images = convert_from_path(target_pdf_path, dpi=300)
 
-        st.success(f"총 {len(images)}개의 슬라이드가 변환되었습니다!")
+        st.success(f"총 {len(high_res_images)}개의 슬라이드가 변환되었습니다!")
 
-        # 6. 변환된 이미지 화면 출력 및 다운로드 제공
-        for i, image in enumerate(images):
+        # 6. 화면에는 가벼운 미리보기 이미지를 보여주고, 다운로드는 고화질(300 DPI)로 제공
+        for i, (prev_img, high_img) in enumerate(
+            zip(preview_images, high_res_images)
+        ):
+          # 화면 미리보기 (작고 빠르게 표시)
           st.image(
-              image,
-              caption=f"슬라이드 {i + 1}",
+              prev_img,
+              caption=f"슬라이드 {i + 1} (미리보기)",
               use_container_width=True,
           )
 
-          # 이미지 다운로드 버튼
-          img_path = os.path.join("temp_files", f"slide_{i + 1}.png")
-          image.save(img_path, "PNG")
+          # 고화질 이미지 임시 저장 및 다운로드 버튼 연결
+          img_path = os.path.join("temp_files", f"slide_{i + 1}_high.png")
+          high_img.save(img_path, "PNG")
 
           with open(img_path, "rb") as img_file:
             st.download_button(
-                label=f"슬라이드 {i + 1} 다운로드 (PNG)",
+                label=f"슬라이드 {i + 1} 고화질 다운로드 (PNG)",
                 data=img_file,
                 file_name=f"slide_{i + 1}.png",
                 mime="image/png",
                 key=f"download_{i}",
             )
-
-      except Exception as e:
-        st.error(f"변환 중 오류가 발생했습니다: {e}")
