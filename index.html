@@ -1,67 +1,85 @@
+import io
 import os
-import comtypes.client
+import zipfile
+import streamlit as st
 from pptx import Presentation
+from PIL import Image
+from rembg import remove
 
-def pptx_to_png_with_custom_filename(pptx_path, output_dir):
-    # 1. python-pptx로 슬라이드 밖의 텍스트 분석
-    prs = Presentation(pptx_path)
-    
-    # 파워포인트 기본 슬라이드 크기 (픽셀 또는 인치 단위 기준, 일반적으로 가로: 9144000, 세로: 5143500 등 EMU 단위 사용)
-    slide_width = prs.slide_width
-    slide_height = prs.slide_height
-    
-    file_names = []
-    
-    for i, slide in enumerate(prs.slides):
-        custom_name = f"slide_{i+1}" # 기본 파일명 (텍스트가 없을 경우)
-        
-        # 슬라이드 내의 모든 도형/텍스트 상자 탐색
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                # 위치 정보 확인 (EMU 단위)
-                left = shape.left
-                top = shape.top
+st.title("PPTX 학생 이미지 일괄 투명화 & 파일명 자동 추출 변환기")
+st.write("각 슬라이드 상단의 텍스트를 파일명으로 삼고, 이미지 배경을 투명하게 만들어 PNG로 일괄 추출합니다.")
+
+uploaded_file = st.file_uploader("파워포인트(PPTX) 파일을 선택하세요", type=["pptx"])
+
+if uploaded_file is not None:
+    if st.button("변환 시작"):
+        with st.spinner("이미지를 추출하고 배경을 투명하게 만드는 중입니다..."):
+            
+            # 1. 업로드된 PPTX 읽기
+            prs = Presentation(uploaded_file)
+            
+            zip_buffer = io.BytesIO()
+            success_count = 0
+            
+            # ZIP 파일로 묶어서 다운로드 준비
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 
-                # 조건: 슬라이드 영역 밖(왼쪽 < 0, 오른쪽 > slide_width, 위쪽 < 0, 아래쪽 > slide_height 등)에 있는 텍스트 상자
-                # 여기서는 슬라이드 가로 폭(slide_width)보다 오른쪽에 있거나, 세로 폭(slide_height)보다 아래에 있는 텍스트를 파일명으로 타겟팅
-                if left > slide_width or top > slide_height or left < 0 or top < 0:
-                    text = shape.text_frame.text.strip()
-                    if text:
-                        # 파일명으로 쓰기 부적절한 특수문자 제거
-                        safe_text = "".join(c for c in text if c.isalnum() or c in (' ', '_', '-')).strip()
-                        if safe_text:
-                            custom_name = safe_text
-                            break # 첫 번째로 발견된 바깥 텍스트를 파일명으로 사용
+                for i, slide in enumerate(prs.slides):
+                    student_name = f"학생_{i+1}" # 기본 이름
+                    slide_image_blob = None
+                    
+                    # 2. 슬라이드 내 요소 분석 (텍스트와 이미지 찾기)
+                    for shape in slide.shapes:
+                        # 텍스트 상자 감지 (상단에 위치한 텍스트를 이름으로 활용)
+                        if shape.has_text_frame:
+                            text = shape.text_frame.text.strip()
+                            if text:
+                                # 파일명으로 쓰기 안전한 문자열로 정제
+                                safe_text = "".join(c for c in text if c.isalnum() or c in (' ', '_', '-')).strip()
+                                if safe_text:
+                                    student_name = safe_text
+                        
+                        # 이미지 개체 감지
+                        if shape.shape_type == 13: # 13은 보통 그림(Picture) 타입
+                            image_blob = shape.image.blob
+                            slide_image_blob = image_blob
+                    
+                    # 3. 이미지가 존재하는 경우 처리
+                    if slide_image_blob:
+                        try:
+                            # PIL 이미지로 변환
+                            image = Image.open(io.BytesIO(slide_image_blob))
                             
-        file_names.append(custom_name)
+                            # 4. rembg를 이용해 배경 투명화 처리
+                            # (이미지가 이미 투명 PNG라 하더라도 안전하게 처리 또는 유지)
+                            output_image = remove(image)
+                            
+                            # 5. 메모리에 PNG 바이트로 저장
+                            img_byte_arr = io.BytesIO()
+                            output_image.save(img_byte_arr, format='PNG')
+                            img_byte_arr = img_byte_arr.getvalue()
+                            
+                            # 파일명 중복 방지 처리
+                            file_name = f"{student_name}.png"
+                            
+                            # ZIP 파일에 추가
+                            zip_file.writestr(file_name, img_byte_arr)
+                            success_count += 1
+                            
+                        except Exception as e:
+                            st.warning(f"슬라이드 {i+1} 처리 중 오류 발생: {e}")
 
-    # 2. PowerPoint COM 객체를 이용해 고화질 슬라이드 이미지 내보내기 (Windows 전용)
-    os.makedirs(output_dir, exist_ok=True)
-    abs_pptx_path = os.path.abspath(pptx_path)
-    abs_output_dir = os.path.abspath(output_dir)
-    
-    powerpoint = comtypes.client.CreateObject("Powerpoint.Application")
-    powerpoint.Visible = 1
-    
-    # 파일 열기 (읽기 전용)
-    presentation = powerpoint.Presentations.Open(abs_pptx_path, ReadOnly=1)
-    
-    # 각 슬라이드를 이미지로 내보내기
-    for i, slide in enumerate(presentation.Slides):
-        target_name = file_names[i]
-        output_file_path = os.path.join(abs_output_dir, f"{target_name}.png")
-        
-        # 슬라이드를 PNG로 내보내기
-        slide.Export(output_file_path, "PNG")
-        print(f"변환 완료: {target_name}.png")
-        
-    presentation.Close()
-    powerpoint.Quit()
-    print("모든 슬라이드 변환이 완료되었습니다!")
-
-# --- 실행 예시 ---
-if __name__ == "__main__":
-    pptx_file = "파워포인트_파일경로.pptx"  # 변환할 PPTX 파일 경로
-    output_folder = "./output_images"    # 이미지가 저장될 폴더 경로
-    
-    pptx_to_png_custom_name(pptx_file, output_folder)
+            zip_buffer.seek(0)
+            
+            if success_count > 0:
+                st.success(f"총 {success_count개의 이미지 변환 및 배경 투명화 완료!")
+                
+                # 다운로드 버튼 제공
+                st.download_button(
+                    label="모든 이미지 ZIP으로 다운로드",
+                    data=zip_buffer,
+                    file_name="transparent_students_images.zip",
+                    mime="application/zip"
+                )
+            else:
+                st.error("변환할 수 있는 이미지를 찾지 못했습니다. 슬라이드에 이미지가 포함되어 있는지 확인해 주세요.")
