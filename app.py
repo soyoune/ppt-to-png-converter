@@ -1,59 +1,69 @@
+import streamlit as st
 import os
 from pptx import Presentation
 from PIL import Image
 import io
+import zipfile
 
-def extract_images_from_pptx(pptx_path, output_dir="extracted_images"):
-    # 출력 폴더 생성
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        
-    prs = Presentation(pptx_path)
-    
-    for slide_index, slide in enumerate(prs.slides):
-        # 1. 상단 텍스트(또는 첫 번째 텍스트 상자)를 찾아서 파일명으로 지정
-        slide_title = f"slide_{slide_index + 1}"
-        for shape in slide.shapes:
-            if shape.has_text_frame and shape.text.strip():
-                # 줄바꿈이나 공백을 제거하여 파일명으로 안전한 문자열 생성
-                clean_text = shape.text.strip().split('\n')[0]
-                # 파일명으로 사용할 수 없는 특수문자 제거
-                for ch in ['\\', '/', ':', '*', '?', '"', '<', '>', '|']:
-                    clean_text = clean_text.replace(ch, '')
-                if clean_text:
-                    slide_title = clean_text
-                    break
-        
-        # 2. 슬라이드 내의 모든 도형을 순회하며 이미지 추출
-        img_counter = 1
-        for shape in slide.shapes:
-            # 그림(Picture) 객체인 경우
-            if shape.shape_type == 1: # 1은 MSO_SHAPE_TYPE.PICTURE 에 해당
-                image = shape.image
-                image_bytes = image.blob
-                image_ext = image.ext  # 원본 확장자 (png, jpeg 등)
-                
-                # 파일명 설정 (슬라이드 내에 이미지가 여러 개일 경우 번호 부여)
-                if img_counter == 1:
-                    file_name = f"{slide_title}.png"
-                else:
-                    file_name = f"{slide_title}_{img_counter}.png"
-                
-                file_path = os.path.join(output_dir, file_name)
-                
-                # 이미지 데이터를 PIL을 통해 처리하여 PNG로 저장 (투명도 유지)
-                try:
-                    image_stream = io.BytesIO(image_bytes)
-                    img = Image.open(image_stream)
-                    
-                    # 투명 배경(RGBA 등)이 있는 경우 그대로 PNG로 저장
-                    img.save(file_path, "PNG")
-                    print(f"추출 완료: {file_path}")
-                except Exception as e:
-                    print(f"이미지 저장 실패 ({file_name}): {e}")
-                
-                img_counter += 1
+st.title("학생 이미지 추출 및 파일명 자동 지정 변환기")
+st.write("PPTX 파일을 업로드하면 각 슬라이드의 상단 텍스트를 파일명으로 하여 이미지들을 개별 PNG로 추출합니다.")
 
-# 사용 예시
-# pptx_path = "당신의_파이썬파일경로.pptx"
-# extract_images_from_pptx(pptx_path)
+uploaded_file = st.file_uploader("파워포인트 파일(.pptx)을 업로드하세요", type=["pptx"])
+
+if uploaded_file is not None:
+    with st.spinner("이미지를 추출하는 중입니다..."):
+        prs = Presentation(uploaded_file)
+        
+        # 임시 결과 저장용 바이트 버퍼 생성
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            for slide_index, slide in enumerate(prs.slides):
+                # 1. 상단 텍스트를 파일명으로 지정
+                slide_title = f"slide_{slide_index + 1}"
+                for shape in slide.shapes:
+                    if shape.has_text_frame and shape.text.strip():
+                        clean_text = shape.text.strip().split('\n')[0]
+                        for ch in ['\\', '/', ':', '*', '?', '"', '<', '>', '|']:
+                            clean_text = clean_text.replace(ch, '')
+                        if clean_text:
+                            slide_title = clean_text
+                            break
+                
+                # 2. 슬라이드 내 이미지 추출
+                img_counter = 1
+                for shape in slide.shapes:
+                    if shape.shape_type == 1:  # 그림 객체
+                        image = shape.image
+                        image_bytes = image.blob
+                        
+                        if img_counter == 1:
+                            file_name = f"{slide_title}.png"
+                        else:
+                            file_name = f"{slide_title}_{img_counter}.png"
+                        
+                        try:
+                            image_stream = io.BytesIO(image_bytes)
+                            img = Image.open(image_stream)
+                            
+                            # PNG 포맷으로 변환용 바이트 버퍼
+                            img_byte_arr = io.BytesIO()
+                            img.save(img_byte_arr, format="PNG")
+                            img_byte_arr.seek(0)
+                            
+                            # ZIP 파일에 추가
+                            zip_file.writestr(file_name, img_byte_arr.read())
+                        except Exception as e:
+                            print(f"이미지 처리 실패: {e}")
+                            
+                        img_counter += 1
+                        
+        zip_buffer.seek(0)
+        
+        st.success("모든 이미지 추출이 완료되었습니다!")
+        st.download_button(
+            label="추출된 이미지 다운로드 (ZIP)",
+            data=zip_buffer,
+            file_name="extracted_images.zip",
+            mime="application/zip"
+        )
