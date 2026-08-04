@@ -1,46 +1,56 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <title>PPT to PNG 변환기</title>
-</head>
-<body>
-    <h2>파워포인트(PPTX)를 PNG 이미지로 변환</h2>
-    <input type="file" id="pptFile" accept=".pptx">
-    <button onclick="uploadPPT()">변환하기</button>
+import io
+import os
+import re
+import zipfile
+import streamlit as st
+from pptx import Presentation
+# 참고: 슬라이드를 이미지로 렌더링하려면 시스템에 LibreOffice 또는 comtypes(Windows) 등이 필요합니다.
+# 또는 미리 렌더링된 툴을 사용하신다면 아래 타이틀 추출 및 파일명 지정 로직을 참고해 보세요.
 
-    <script>
-        async function uploadPPT() {
-            const fileInput = document.getElementById('pptFile');
-            if (fileInput.files.length === 0) {
-                alert("파일을 선택해주세요!");
-                return;
-            }
+st.title("파워포인트 슬라이드 타이틀 기반 PNG 추출기")
+st.write("PPTX 파일을 업로드하면 슬라이드 타이틀을 파일명으로 하는 PNG 압축파일을 생성합니다.")
 
-            const formData = new FormData();
-            formData.append("file", fileInput.files[0]);
+uploaded_file = st.file_uploader("PPTX 파일을 선택하세요", type=["pptx"])
 
-            alert("변환 중입니다. 잠시만 기다려주세요!");
+def sanitize_filename(name):
+    """파일명으로 사용할 수 없는 특수문자 제거 및 정리"""
+    name = re.sub(r'[\/:*?"<>|]', '', name)
+    return name.strip() or "slide"
 
-            const response = await fetch("http://127.0.0.1:8000/convert-ppt-to-png/", {
-                method: "POST",
-                body: formData
-            });
+if uploaded_file is not None:
+    # 1. 파일 임시 저장
+    temp_pptx_path = "temp.pptx"
+    with open(temp_pptx_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    
+    # 2. python-pptx를 통한 프레젠테이션 로드
+    prs = Presentation(temp_pptx_path)
+    
+    st.success(f"총 {len(prs.slides)}개의 슬라이드가 감지되었습니다.")
+    
+    if st.button("슬라이드를 PNG로 변환 및 다운로드 준비"):
+        # ZIP 파일 메모리 버퍼 생성
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for index, slide in enumerate(prs.slides, start=1):
+                # 타이틀 텍스트 추출 시도 (첫 번째 텍스트 상자 또는 슬라이드 타이틀)
+                slide_title = f"slide_{index:02d}"
+                
+                for shape in slide.shapes:
+                    if shape.has_text_frame and shape.text:
+                        text = shape.text_frame.text.strip().split('\n')[0]
+                        if text:
+                            slide_title = sanitize_filename(text)
+                            break # 첫 번째로 찾은 텍스트를 타이틀로 사용
+                
+                # 파일명 중복 방지를 위한 번호 조합
+                filename = f"{index:02d}_{slide_title}.png"
+                
+                # [주의] 파이썬 환경에서 슬라이드를 직접 이미지로 변환하려면 
+                # python-pptx 외에 추가 렌더링 도구(예: LibreOffice, Aspose 등) 연동이 필요합니다.
+                # 아래는 가상의 이미지 바이너리 저장 로직 예시입니다.
+                # dummy_image_bytes = convert_slide_to_image(slide) 
+                # zip_file.writestr(filename, dummy_image_bytes)
 
-            if (response.ok) {
-                // 변환된 이미지 파일을 다운로드 링크로 연결
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = "slide_1.png";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            } else {
-                alert("변환에 실패했습니다.");
-            }
-        }
-    </script>
-</body>
-</html>
+        st.info("타이틀 기반 파일명 매핑 로직이 포함된 소스 코드입니다. 실제 이미지 변환 환경에 맞춰 렌더링 함수를 연동해 보세요.")
